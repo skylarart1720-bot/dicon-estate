@@ -81,6 +81,7 @@ export async function POST(request: Request) {
   const authError = requireAdmin(request);
   if (authError) return authError;
   if (!hasBlobStorage && process.env.VERCEL) return NextResponse.json({ error: "Vercel Blob is not configured. Add BLOB_READ_WRITE_TOKEN in Vercel Project Settings, then redeploy." }, { status: 503 });
+  let stage = "reading upload";
   try {
     const formData = await request.formData();
     const collectionValue = formData.get("collection");
@@ -96,6 +97,7 @@ export async function POST(request: Request) {
     const status = validStatus(collectionValue, String(formData.get("status") ?? "available"));
     const assets: MediaAsset[] = [];
 
+    stage = hasBlobStorage ? "uploading media to Vercel Blob" : "writing local media";
     await mkdir(mediaRoot, { recursive: true });
     for (const file of files) {
       const assetId = crypto.randomUUID();
@@ -111,12 +113,15 @@ export async function POST(request: Request) {
       }
     }
 
+    stage = "updating media library index";
     const stack: MediaStack = { id: stackId, collection: collectionValue, title, location, description, status, uploadedAt, assets };
     const stacks = await readLibrary();
     await writeLibrary(collectionValue === "carousel" ? [...stacks, ...assets.map((asset) => ({ ...stack, id: asset.id, title: asset.name, assets: [asset] }))] : [...stacks, stack]);
     return NextResponse.json({ stack: responseStack(stack), storage: hasBlobStorage ? "vercel-blob" : "local" });
-  } catch {
-    return NextResponse.json({ error: hasBlobStorage ? "Vercel Blob upload failed. Confirm the Blob store is connected to this project and BLOB_READ_WRITE_TOKEN is set for the active deployment." : "Upload failed. Check local storage configuration and try again." }, { status: 500 });
+  } catch (error) {
+    console.error("Dicon Estate media upload failed", { stage, error });
+    const detail = error instanceof Error ? ` ${error.message}` : "";
+    return NextResponse.json({ error: hasBlobStorage ? `Vercel Blob failed while ${stage}.${detail}` : `Upload failed while ${stage}.${detail}` }, { status: 500 });
   }
 }
 
