@@ -366,6 +366,10 @@ h2 { font-size: clamp(42px, 6vw, 78px); line-height: 1; margin-top: 26px; }
   .stack-manager-actions { flex-wrap: wrap; }
   .library-heading { margin-top: 58px; }
   .file-drop { min-height: 210px; }
+  .services-showcase { grid-template-columns: 1fr; }
+  .service-card { grid-template-columns: 1fr; }
+  .service-media { min-height: 220px; }
+  .service-copy { padding: 24px 20px 26px; }
 }
 
 @media (min-width: 701px) and (max-width: 1000px) {
