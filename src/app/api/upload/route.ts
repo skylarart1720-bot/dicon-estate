@@ -4,6 +4,8 @@ import path from "node:path";
 import { NextResponse } from "next/server";
 import { adminCookieName, isValidAdminSession } from "@/lib/admin-auth";
 
+export const runtime = "nodejs";
+
 const collections = ["carousel", "housing", "land", "painting"] as const;
 type Collection = (typeof collections)[number];
 type MediaAsset = { id: string; url: string; pathname: string; name: string; type: string; size: number; uploadedAt: string };
@@ -78,6 +80,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const authError = requireAdmin(request);
   if (authError) return authError;
+  if (!hasBlobStorage && process.env.VERCEL) return NextResponse.json({ error: "Vercel Blob is not configured. Add BLOB_READ_WRITE_TOKEN in Vercel Project Settings, then redeploy." }, { status: 503 });
   try {
     const formData = await request.formData();
     const collectionValue = formData.get("collection");
@@ -120,6 +123,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const authError = requireAdmin(request);
   if (authError) return authError;
+  if (!hasBlobStorage && process.env.VERCEL) return NextResponse.json({ error: "Vercel Blob is not configured. Add BLOB_READ_WRITE_TOKEN in Vercel Project Settings, then redeploy." }, { status: 503 });
   try {
     const contentType = request.headers.get("content-type") ?? "";
     if (contentType.includes("multipart/form-data")) {
@@ -187,6 +191,7 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   const authError = requireAdmin(request);
   if (authError) return authError;
+  if (!hasBlobStorage && process.env.VERCEL) return NextResponse.json({ error: "Vercel Blob is not configured. Add BLOB_READ_WRITE_TOKEN in Vercel Project Settings, then redeploy." }, { status: 503 });
   try {
     const body = await request.json() as { stackId?: string };
     if (!body.stackId) return NextResponse.json({ error: "A stack id is required." }, { status: 400 });
