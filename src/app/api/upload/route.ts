@@ -98,7 +98,7 @@ export async function POST(request: Request) {
     const assets: MediaAsset[] = [];
 
     stage = hasBlobStorage ? "uploading media to Vercel Blob" : "writing local media";
-    await mkdir(mediaRoot, { recursive: true });
+    if (!hasBlobStorage) await mkdir(mediaRoot, { recursive: true });
     for (const file of files) {
       const assetId = crypto.randomUUID();
       const name = file.name.replace(/[^a-zA-Z0-9._-]/g, "-");
