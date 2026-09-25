@@ -59,7 +59,7 @@ async function readLibrary(): Promise<MediaStack[]> {
 
 async function writeLibrary(stacks: MediaStack[]) {
   if (hasBlobStorage) {
-    await put(blobLibraryPath, JSON.stringify(stacks), { access: "public", addRandomSuffix: false, contentType: "application/json" });
+    await put(blobLibraryPath, JSON.stringify(stacks), { access: "public", addRandomSuffix: false, allowOverwrite: true, contentType: "application/json" });
     return;
   }
   await mkdir(path.dirname(mediaIndex), { recursive: true });
