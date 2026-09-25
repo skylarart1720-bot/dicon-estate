@@ -1,4 +1,4 @@
-import { del, list, put } from "@vercel/blob";
+import { del, get, put } from "@vercel/blob";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
@@ -42,11 +42,9 @@ function requireAdmin(request: Request) {
 async function readLibrary(): Promise<MediaStack[]> {
   try {
     if (hasBlobStorage) {
-      const result = await list({ prefix: blobLibraryPath });
-      if (!result.blobs[0]) return [];
-      const response = await fetch(result.blobs[0].url, { cache: "no-store" });
-      if (!response.ok) return [];
-      return await response.json() as MediaStack[];
+      const blob = await get(blobLibraryPath, { access: "private", useCache: false });
+      if (!blob) return [];
+      return await new Response(blob.stream).json() as MediaStack[];
     }
     const parsed = JSON.parse(await readFile(mediaIndex, "utf8")) as MediaStack[] | Array<MediaAsset & { collection: Collection }>;
     if (!parsed.length) return [];
@@ -59,7 +57,7 @@ async function readLibrary(): Promise<MediaStack[]> {
 
 async function writeLibrary(stacks: MediaStack[]) {
   if (hasBlobStorage) {
-    await put(blobLibraryPath, JSON.stringify(stacks), { access: "public", addRandomSuffix: false, allowOverwrite: true, contentType: "application/json" });
+    await put(blobLibraryPath, JSON.stringify(stacks), { access: "private", addRandomSuffix: false, allowOverwrite: true, contentType: "application/json" });
     return;
   }
   await mkdir(path.dirname(mediaIndex), { recursive: true });
@@ -67,7 +65,7 @@ async function writeLibrary(stacks: MediaStack[]) {
 }
 
 function responseStack(stack: MediaStack) {
-  return { ...stack, assets: stack.assets.map((asset) => ({ ...asset })) };
+  return { ...stack, assets: stack.assets.map((asset) => ({ ...asset, url: hasBlobStorage ? `/api/media?pathname=${encodeURIComponent(asset.pathname)}` : asset.url })) };
 }
 
 export async function GET(request: Request) {
@@ -103,7 +101,7 @@ export async function POST(request: Request) {
       const assetId = crypto.randomUUID();
       const name = file.name.replace(/[^a-zA-Z0-9._-]/g, "-");
       if (hasBlobStorage) {
-        const uploaded = await put(`${collectionValue}/${stackId}/${assetId}-${name}`, file, { access: "public", addRandomSuffix: true });
+        const uploaded = await put(`${collectionValue}/${stackId}/${assetId}-${name}`, file, { access: "private", addRandomSuffix: true });
         assets.push({ id: assetId, url: uploaded.url, pathname: uploaded.pathname, name, type: file.type, size: file.size, uploadedAt });
       } else {
         const pathname = `${collectionValue}/${stackId}/${assetId}-${name}`;
@@ -152,7 +150,7 @@ export async function PATCH(request: Request) {
         const name = file.name.replace(/[^a-zA-Z0-9._-]/g, "-");
         const uploadedAt = new Date().toISOString();
         if (hasBlobStorage) {
-          const uploaded = await put(`${target}/${current.id}/${assetId}-${name}`, file, { access: "public", addRandomSuffix: true });
+          const uploaded = await put(`${target}/${current.id}/${assetId}-${name}`, file, { access: "private", addRandomSuffix: true });
           keptAssets.push({ id: assetId, url: uploaded.url, pathname: uploaded.pathname, name, type: file.type, size: file.size, uploadedAt });
         } else {
           const pathname = `${target}/${current.id}/${assetId}-${name}`;
