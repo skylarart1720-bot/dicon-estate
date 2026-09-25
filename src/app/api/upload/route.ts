@@ -116,7 +116,7 @@ export async function POST(request: Request) {
     await writeLibrary(collectionValue === "carousel" ? [...stacks, ...assets.map((asset) => ({ ...stack, id: asset.id, title: asset.name, assets: [asset] }))] : [...stacks, stack]);
     return NextResponse.json({ stack: responseStack(stack), storage: hasBlobStorage ? "vercel-blob" : "local" });
   } catch {
-    return NextResponse.json({ error: "Upload failed. Check storage configuration and try again." }, { status: 500 });
+    return NextResponse.json({ error: hasBlobStorage ? "Vercel Blob upload failed. Confirm the Blob store is connected to this project and BLOB_READ_WRITE_TOKEN is set for the active deployment." : "Upload failed. Check local storage configuration and try again." }, { status: 500 });
   }
 }
 

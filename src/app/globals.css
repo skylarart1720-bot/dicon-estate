@@ -30,6 +30,7 @@ body {
 
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
+body { overflow-x: hidden; }
 a { color: inherit; text-decoration: none; }
 button, input, textarea, select { font: inherit; }
 button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px solid rgba(200,149,30,.55); outline-offset: 3px; }

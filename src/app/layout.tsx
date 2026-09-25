@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { DM_Sans, Playfair_Display } from "next/font/google";
 import "./globals.css";
 
@@ -15,6 +15,12 @@ const playfair = Playfair_Display({
 export const metadata: Metadata = {
   title: "Dicon Estate | Land Sales and Room Rentals",
   description: "Your trusted partner in secure land sales and affordable room rentals.",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
