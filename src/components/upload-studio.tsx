@@ -1,5 +1,6 @@
 "use client";
 
+import { upload } from "@vercel/blob/client";
 import { ChangeEvent, useEffect, useRef, useState } from "react";
 import { Check, CloudUpload, Edit3, FileImage, LoaderCircle, RefreshCw, Trash2, X } from "lucide-react";
 
@@ -38,7 +39,7 @@ export function UploadStudio() {
     setCollection(target); setStatus(""); setFiles(null); setTitle(""); setLocation(""); setDescription(""); setStackStatus("available"); setEditingStack(null); setRemoveAssetIds([]); setProgress(0);
   }
 
-  function submit(event: React.FormEvent) {
+  async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (!editingStack && !files?.length) return setStatus("Choose at least one image or video first.");
     if (collection !== "carousel" && !title.trim()) return setStatus("Add a title for this listing.");
@@ -46,21 +47,40 @@ export function UploadStudio() {
     const form = new FormData();
     form.append("collection", collection); form.append("title", title || "Featured image"); form.append("location", location); form.append("description", description); form.append("status", stackStatus);
     if (editingStack) { form.append("stackId", editingStack.id); form.append("removeAssetIds", JSON.stringify(removeAssetIds)); }
-    if (files) Array.from(files).forEach((file) => form.append("files", file));
-    const request = new XMLHttpRequest();
-    request.open(editingStack ? "PATCH" : "POST", "/api/upload");
-    request.upload.onprogress = (event) => { if (event.lengthComputable) setProgress(Math.round((event.loaded / event.total) * 100)); };
-    request.onload = () => {
-      try {
-        const result = JSON.parse(request.responseText) as { stack?: MediaStack; error?: string };
-        if (request.status >= 200 && request.status < 300) {
-          setProgress(100); setStatus(editingStack ? "Stack updated successfully." : `${result.stack?.assets.length ?? 0} media item${result.stack?.assets.length === 1 ? "" : "s"} stored in a new stack.`); resetForm(); loadStacks().catch(() => undefined);
-        } else setStatus(result.error ?? "Upload failed.");
-      } catch { setStatus("The server returned an unreadable response."); }
+    try {
+      const configResponse = await fetch("/api/upload");
+      const config = await readUploadResponse(configResponse);
+      const selectedFiles = Array.from(files ?? []);
+      if (config.storage === "vercel-blob") {
+        const uploadedPaths: string[] = [];
+        const totalBytes = selectedFiles.reduce((total, file) => total + file.size, 0);
+        let completedBytes = 0;
+        for (const file of selectedFiles) {
+          const name = file.name.replace(/[^a-zA-Z0-9._-]/g, "-").replace(/\.\./g, "-");
+          const blob = await upload(`${collection}/direct/${crypto.randomUUID()}/${name}`, file, {
+            access: "private",
+            handleUploadUrl: "/api/upload/token",
+            multipart: true,
+            onUploadProgress: ({ loaded }) => setProgress(totalBytes ? Math.min(99, Math.round(((completedBytes + loaded) / totalBytes) * 100)) : 0),
+          });
+          uploadedPaths.push(blob.pathname);
+          completedBytes += file.size;
+        }
+        form.append("uploadedPaths", JSON.stringify(uploadedPaths));
+      } else {
+        selectedFiles.forEach((file) => form.append("files", file));
+      }
+      const response = await fetch("/api/upload", { method: editingStack ? "PATCH" : "POST", body: form });
+      const result = await readUploadResponse(response);
+      setProgress(100);
+      setStatus(editingStack ? "Stack updated successfully." : `${result.stack?.assets.length ?? 0} media item${result.stack?.assets.length === 1 ? "" : "s"} stored in a new stack.`);
+      resetForm();
+      await loadStacks().catch(() => undefined);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Upload failed. Check the server connection.");
+    } finally {
       setBusy(false);
-    };
-    request.onerror = () => { setBusy(false); setStatus("Upload failed. Check the server connection."); };
-    request.send(form);
+    }
   }
 
   function resetForm() {
@@ -99,3 +119,12 @@ export function UploadStudio() {
 
 function Progress({ progress, label }: { progress: number; label: string }) { return <div className="progress-wrap" aria-live="polite"><div className="progress-label"><span>Saving {label}</span><strong>{progress}%</strong></div><div className="progress-track"><div className="progress-value" style={{ width: `${progress}%` }} /></div></div>; }
 function ExistingAssets({ stack, removeAssetIds, setRemoveAssetIds }: { stack: MediaStack; removeAssetIds: string[]; setRemoveAssetIds: (ids: string[]) => void }) { return <div className="edit-assets"><span>Existing media</span>{stack.assets.map((asset) => <label key={asset.id} className={removeAssetIds.includes(asset.id) ? "edit-asset removed" : "edit-asset"}><input type="checkbox" checked={removeAssetIds.includes(asset.id)} onChange={() => setRemoveAssetIds(removeAssetIds.includes(asset.id) ? removeAssetIds.filter((id) => id !== asset.id) : [...removeAssetIds, asset.id])} /><span style={{ backgroundImage: `url(${asset.url})` }} /><small>{removeAssetIds.includes(asset.id) ? "Remove" : asset.name}</small></label>)}</div>; }
+
+async function readUploadResponse(response: Response): Promise<{ storage?: string; stack?: MediaStack; error?: string }> {
+  const result = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(result?.error ?? (response.status === 413 ? "The upload exceeded the server request limit. Refresh the page and try again." : `Upload failed (HTTP ${response.status}). Please try again.`));
+  }
+  if (!result) throw new Error("The upload service returned an invalid response. Please try again.");
+  return result;
+}

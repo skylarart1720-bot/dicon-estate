@@ -1,4 +1,4 @@
-import { del, get, put } from "@vercel/blob";
+import { del, get, head, put } from "@vercel/blob";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
@@ -37,6 +37,20 @@ function requireAdmin(request: Request) {
   const cookie = request.headers.get("cookie")?.split(";").map((part) => part.trim()).find((part) => part.startsWith(`${adminCookieName}=`));
   if (!isValidAdminSession(cookie?.slice(adminCookieName.length + 1))) return NextResponse.json({ error: "Administrator authentication required." }, { status: 401 });
   return null;
+}
+
+// Resolve metadata from our own store, never trust browser-supplied URLs or sizes.
+async function uploadedAssets(form: FormData, collection: Collection): Promise<MediaAsset[]> {
+  const paths: unknown = JSON.parse(String(form.get("uploadedPaths") ?? "[]"));
+  if (!Array.isArray(paths) || paths.length > 100) throw new Error("Invalid uploaded media list.");
+  if (paths.length && !hasBlobStorage) throw new Error("Blob storage is not configured.");
+  return Promise.all(paths.map(async (pathname: unknown) => {
+    if (typeof pathname !== "string" || !pathname.startsWith(`${collection}/direct/`) || pathname.includes("..")) throw new Error("Invalid uploaded media path.");
+    const blob = await head(pathname);
+    if (!blob.contentType.startsWith("image/") && !blob.contentType.startsWith("video/")) throw new Error("Only images and videos are supported.");
+    if (collection === "carousel" && !blob.contentType.startsWith("image/")) throw new Error("Carousel accepts images only.");
+    return { id: crypto.randomUUID(), url: blob.url, pathname: blob.pathname, name: blob.pathname.split("/").pop() ?? "Media", type: blob.contentType, size: blob.size, uploadedAt: blob.uploadedAt.toISOString() };
+  }));
 }
 
 async function readLibrary(): Promise<MediaStack[]> {
@@ -85,7 +99,8 @@ export async function POST(request: Request) {
     const collectionValue = formData.get("collection");
     if (typeof collectionValue !== "string" || !isCollection(collectionValue)) return NextResponse.json({ error: "Choose a valid collection." }, { status: 400 });
     const files = formData.getAll("files").filter((value): value is File => value instanceof File && value.size > 0);
-    if (!files.length) return NextResponse.json({ error: "No files were provided." }, { status: 400 });
+    const directAssets = await uploadedAssets(formData, collectionValue);
+    if (!files.length && !directAssets.length) return NextResponse.json({ error: "No files were provided." }, { status: 400 });
     if (collectionValue === "carousel" && files.some((file) => !isImageFile(file))) return NextResponse.json({ error: "Carousel accepts images only." }, { status: 400 });
     const stackId = crypto.randomUUID();
     const uploadedAt = new Date().toISOString();
@@ -93,7 +108,7 @@ export async function POST(request: Request) {
     const location = String(formData.get("location") ?? "");
     const description = String(formData.get("description") ?? "");
     const status = validStatus(collectionValue, String(formData.get("status") ?? "available"));
-    const assets: MediaAsset[] = [];
+    const assets: MediaAsset[] = [...directAssets];
 
     stage = hasBlobStorage ? "uploading media to Vercel Blob" : "writing local media";
     if (!hasBlobStorage) await mkdir(mediaRoot, { recursive: true });
@@ -139,7 +154,8 @@ export async function PATCH(request: Request) {
       const target = String(formData.get("collection") ?? current.collection);
       if (!isCollection(target)) return NextResponse.json({ error: "Choose a valid destination." }, { status: 400 });
       const removedIds = JSON.parse(String(formData.get("removeAssetIds") ?? "[]")) as string[];
-      const keptAssets = current.assets.filter((asset) => !removedIds.includes(asset.id));
+      const directAssets = await uploadedAssets(formData, target);
+      const keptAssets = [...current.assets.filter((asset) => !removedIds.includes(asset.id)), ...directAssets];
       if (!keptAssets.length && !formData.getAll("files").some((value) => value instanceof File && value.size > 0)) return NextResponse.json({ error: "Keep at least one media item in the stack." }, { status: 400 });
       if (hasBlobStorage) await Promise.all(current.assets.filter((asset) => removedIds.includes(asset.id)).map((asset) => del(asset.url)));
       else await Promise.all(current.assets.filter((asset) => removedIds.includes(asset.id)).map((asset) => unlink(path.join(mediaRoot, asset.pathname)).catch(() => undefined)));
